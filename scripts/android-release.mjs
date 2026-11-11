@@ -9,5 +9,6 @@ for (const name of ['canopy-release.p12','password']) {
   if (info.mode & 0o077) throw Error('Signing files must be readable by their owner only.');
 }
 const password = (await readFile(join(root,'password'),'utf8')).trim();
-const result = spawnSync('./android/gradlew', ['-p','android','assembleRelease','testReleaseUnitTest','lintRelease','--console=plain'], { stdio:'inherit', env: { ...process.env, CANOPY_KEYSTORE: join(root,'canopy-release.p12'), CANOPY_STORE_PASSWORD: password } });
+const tasks = process.argv.slice(2);
+const result = spawnSync('./android/gradlew', ['-p','android',...(tasks.length ? tasks : ['assembleRelease','testReleaseUnitTest','lintRelease']),'--console=plain'], { stdio:'inherit', env: { ...process.env, CANOPY_KEYSTORE: join(root,'canopy-release.p12'), CANOPY_STORE_PASSWORD: password } });
 process.exit(result.status ?? 1);

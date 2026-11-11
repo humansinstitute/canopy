@@ -1,52 +1,99 @@
 # Canopy for Android
 
-Canopy is an Android native host with its React UI bundled in the APK. It is not a rewrite into native UI controls and does not load the hosted website as its application shell. Android 11 or newer and a current Android System WebView are required. Install Amber separately to connect an account.
+Canopy is a Kotlin/Jetpack Compose Android app. Its interface, reactive state,
+relay transport, public cache/search, navigation, media and file selection run
+natively. The APK contains no React application, JavaScript bridge, web assets,
+WebView UI or website fallback. The React website remains a separate application.
 
-The same Applesauce/RxJS client provides feeds, profiles, search/cache, threads, mentions, quotes, media, bookmarks and wallet settings. The browser build remains unchanged. Android profile/event share links use the public Canopy HTTPS site. Android handles Nostr/public HTTPS deep links, system back, document/image selection, external Lightning wallet links and fullscreen video.
+Android 11+ is supported (min 30, target 36). Install Amber separately. Identity
+keys remain in Amber; Canopy never accepts an identity nsec. Public profiles and
+events open without signing in. Signing, account switching, reactions, publishing,
+profile/list edits and upload authorization use native NIP-55 Activity Results.
 
-## Signer security
+## Architecture and security
 
-Only the bundled `https://appassets.androidplatform.net` main frame gets the AndroidX WebMessage listener. External top-level navigation opens the system browser; arbitrary intent URLs are never forwarded. The bridge allows only public-key, event signing and the used NIP-44 encrypt/decrypt operations. It addresses Amber explicitly, correlates each response, pins `current_user`, bounds payloads, rejects overlapping requests and expires abandoned prompts. Signed events must have the exact requested event hash, fields, account and a valid Schnorr signature before reaching Canopy. No identity secret is requested or stored.
+- `Protocol.kt`: immutable event contracts, exact-request hash/Schnorr validation,
+  NIP-10, list preservation, discovery and primary-library NIP-19 links.
+- `RelayTransport.kt`: OkHttp NIP-01 sockets, bounded verified ingress, socket
+  generation isolation, subscription cleanup/retry, distinct EOSE and first-OK
+  publication. Uncertain record reads cannot erase replacement-list content.
+- `Storage.kt`: bounded SQLite public events and account-scoped preferences.
+  Wallet credentials use Android Keystore AES-GCM with the account as associated
+  data. Android backup/transfer is excluded. Identity signing keys are never stored.
+- `CanopyModel.kt`: lifecycle-aware Flow state, following-only feeds, read/write
+  preferences, profile refresh, publishing and serialized replacement changes.
+- `AmberSigner.kt`: explicit Amber intents, account binding, one correlated bounded
+  request, cancellation/rejection/timeout errors and exact immutable verification.
+  ViewModel retention handles rotation. Orphan results after process death are
+  discarded; drafts persist and require a new publish action.
+- Native Compose screens use Android navigation and share/clipboard/photo picker
+  controls, Coil images and Media3 video. All network media must use HTTPS.
+- Quartz and ACINQ supply NIP-19, NIP-04/44 and secp256k1 primitives. Identity
+  encryption, when requested, stays in Amber; NWC uses only its scoped wallet
+  authorization, with its own relay pool and verified correlated responses.
 
-Only the public Amber account key persists in host preferences. Repeated identity checks return that cached public key without repeatedly opening Amber. The native **Canopy · Amber account** menu provides **Switch Amber account**, invalidates pending requests and clears remembered login. Amber is always asked to operate as the connected account, regardless of which account is visible in Amber. Rejected, cancelled, missing-signer and failed-process requests remain retryable. Activity/process recreation discards pending results and loads a fresh document; it does not publish late signed events. Drafts in an active document survive a normal Amber round trip; unsaved drafts may be lost after OS process termination.
-
-NStack discovery remains browser-mediated through `window.NStack`. The Android host does not impersonate that bridge or store Tower credentials; NStack backup is unavailable in this host. Local settings, public cache/search, NWC and external wallet invoice flows remain available. WebLN is not injected. NWC uses its separate wallet capability, never the identity signing key.
+See [PARITY.md](PARITY.md) for the complete source-derived feature checklist.
+NStack backup requires the website's browser-mediated authority. Native Canopy
+shows this limit and does not access Tower credentials. Live payments and physical
+devices require separate validation; tests never silently post to public relays.
 
 ## Build and test
 
-Install Node/npm, Java 17+ and Android SDK platform/build-tools 36. Set `JAVA_HOME` and `ANDROID_HOME` for your machine.
+Install Java 17+ and Android SDK 37.2/build tools. Compilation uses SDK 37.2 because
+current maintained Quartz/Compose artifacts require it; this does not require a
+newer Android device. Runtime target stays API 36. Gradle, Kotlin, Android plugins
+and all libraries are pinned in the project. Set `JAVA_HOME` and `ANDROID_HOME`.
 
 ```sh
-npm ci
-npm run check
-npx tsc -p android/tsconfig.json --noEmit
 ./android/gradlew -p android assembleDebug testDebugUnitTest lintDebug
-npx playwright install chromium webkit
-npm run test:browser
-node scripts/android-bundle-smoke.mjs
+./android/gradlew -p android connectedDebugAndroidTest
+npm run check
 ```
 
-The Android Gradle build bundles the shared web sources and OFL-licensed fonts automatically. The offline bundle smoke checks actual emitted assets and CSP with a simulated public-key transport; it does not replace a real Amber/device check. Build output stays under ignored `android/**/build/`; normal `dist/` remains the website build. The browser source and live managed app need no activation for Android-only changes.
+Debug builds use `com.wingman.canopy.debug`, so they can coexist with the release.
+Native unit tests cover immutable signed requests, replacement preservation,
+NIP-19 links, thread/discovery/notification logic, and controlled TLS WebSocket
+acceptance/race/EOSE behavior. Instrumentation exercises native navigation,
+search/saved/thread/draft behavior and persistent/encrypted storage with signed
+offline fixtures. It does not publish those fixtures.
 
-## Durable release signing
+## Release signing and publication
 
-Create the APK key once in an owner-only directory outside every repository. Keep an encrypted backup of the keystore and password together in the owner's secure backup system. Losing them prevents updates under the same Android identity. These are APK credentials, separate from any Nostr identity.
+The update identity is `com.wingman.canopy`. Keep the established APK certificate;
+the APK signing key is separate from the broker's Nostr publisher identity.
+Private signing material must live outside the checkout in an owner-only durable
+directory. Never print passwords or commit/export signing material.
 
 ```sh
-node scripts/android-signing-init.mjs /absolute/private/canopy-release
-CANOPY_SIGNING_DIRECTORY=/absolute/private/canopy-release node scripts/android-release.mjs
-apksigner verify --verbose --print-certs android/app/build/outputs/apk/release/app-release.apk
-shasum -a 256 android/app/build/outputs/apk/release/app-release.apk
+CANOPY_SIGNING_DIRECTORY=/private/signing/directory node scripts/android-release.mjs
 ```
 
-The initializer refuses existing material and never prints the password. The release runner reads private owner-only files and supplies signing values directly to the child process. Never put the password in command arguments, git, public build logs or a release attachment. Use the same package `com.wingman.canopy`; increment `versionCode` for every future release.
+The script privately supplies signing values and builds/tests/lints the release.
+Install and test that exact signed APK with real Amber before publication. Use
+`-PnativeReleaseTests` with `connectedReleaseAndroidTest` when running the native
+instrumentation suite against a signed release; supply signing environment through
+the same private wrapper rather than pasting secrets into shell commands.
 
-## Publishing
+Confirm greater version/code, APK hash, certificate continuity, native startup,
+Amber login/sign/reject/encrypt/decrypt, offline/reconnect behavior and native
+navigation/media/back/deep links. Check APK contents for web assets and the final
+manifest/package/signature. Compilation is insufficient for parity acceptance.
 
-Review the exact public source tree, excluding operational instructions, private records, signing files, emulator data and local git history. Publish only a reviewed clean export when the local history is private. Attach the verified release APK and SHA-256 checksum to the source forge release.
+Use `scripts/export-public.mjs` for a fresh reviewed clean source export, which
+includes Kotlin, Compose resources, tests and these product docs. Never publish
+this checkout's private Git history. Review the exact export, then commit/push
+only its clean public main and attach the tested APK/checksum to a greater release.
 
-Use current [Zapstore publishing documentation](https://zapstore.dev/docs/publish) and [zsp](https://github.com/zapstore/zsp). The supported external-signing path in zsp 0.4.17 uses `SIGN_WITH=<public-npub>` and `publish --offline --json` to prepare unsigned events. Sign the reviewed templates through the authorized capability broker, verify the returned publisher/fields/signatures, replace release asset references with the actual signed asset ID, and publish to the Zapstore relay. Do not export identity secrets or use an invented bunker credential. Newer zsp versions may have a different interface; verify before use.
+Use `scripts/zapstore-release.ts` and current `zapstore.yaml` only through the
+inherited authorized broker. No raw Nostr key, nsec or bunker fallback is allowed.
+For the certificate proof use the established offline `zsp identity --link-key`
+flow with the public publisher and privately supplied keystore password; proof
+and broker timestamps must match. Verify the RSA proof against the public APK
+certificate. Reconcile uncertain delivery before retries. Verify all signed app,
+asset, release and certificate events by relay readback, current catalog selection,
+and anonymous APK/CDN download hashes. Relay acceptance alone is insufficient.
 
-For the certificate link, use `zsp identity --link-key ... --offline` with the public publisher and privately supplied keystore password. The certificate proof timestamp must match the broker-signed timestamp exactly. Verify the RSA proof against the exported public certificate. Publish the app, asset, release and certificate proof; reconcile uncertain deliveries before retrying. Relay acceptance is not availability: verify readback, the public listing and downloaded APK hash separately.
-
-Protocol references: [NIP-55](https://github.com/nostr-protocol/nips/blob/master/55.md), [Amber](https://github.com/greenart7c3/Amber).
+Protocol documentation: [NIP-55](https://github.com/nostr-protocol/nips/blob/master/55.md),
+[Amber](https://github.com/greenart7c3/Amber),
+[Quartz](https://github.com/vitorpamplona/quartz),
+[ACINQ](https://github.com/ACINQ/secp256k1-kmp).
