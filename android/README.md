@@ -23,9 +23,10 @@ npx tsc -p android/tsconfig.json --noEmit
 ./android/gradlew -p android assembleDebug testDebugUnitTest lintDebug
 npx playwright install chromium webkit
 npm run test:browser
+node scripts/android-bundle-smoke.mjs
 ```
 
-The Android Gradle build bundles the shared web sources automatically. Build output stays under ignored `android/**/build/`; normal `dist/` remains the website build. The browser source and live managed app need no activation for Android-only changes.
+The Android Gradle build bundles the shared web sources and OFL-licensed fonts automatically. The offline bundle smoke checks actual emitted assets and CSP with a simulated public-key transport; it does not replace a real Amber/device check. Build output stays under ignored `android/**/build/`; normal `dist/` remains the website build. The browser source and live managed app need no activation for Android-only changes.
 
 ## Durable release signing
 

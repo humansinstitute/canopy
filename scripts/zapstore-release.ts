@@ -5,23 +5,24 @@ import { verifyEvent } from 'nostr-tools';
 const root=process.env.AUTOPILOT_REPO;
 if (!root) throw Error('AUTOPILOT_REPO must name the installed broker checkout.');
 const {callCapabilityBroker, readCapabilityIdentity}=await import(resolve(root,'src/mcp/capability-client.ts'));
-const publisher='ffdc30446bede234446a69124bae94cdbddebf24f0abee4a5cabfc1124313c2e';
-const pkg='com.wingman.canopy'; const repo='https://github.com/humansinstitute/canopy';
+const policy=await Bun.file(new URL('../android/release-policy.json',import.meta.url)).json();
+const publisher=policy.publisherHex; const pkg=policy.packageId; const repo=policy.repository;
 const relay='wss://relay.zapstore.dev';
 const [action, directory]=Bun.argv.slice(2); const run=resolve(directory);
 type Event={kind:number;pubkey:string;created_at:number;content:string;tags:string[][];id?:string;sig?:string};
 const tag=(e:Event,n:string)=>e.tags.find(t=>t[0]===n)?.[1];
 const meta=await Bun.file(run+'/metadata.json').json();
-if (meta.package_id!==pkg || meta.version_name!=='0.1.0' || meta.version_code!==1 || meta.certificate_hash!=='50b54aeaeedaa71d4a2e27625e75835fb4b9ab8544a8fa8dd49b58b13082685e') throw Error('Release metadata identity mismatch.');
+if (meta.package_id!==pkg || !/^\d+\.\d+\.\d+$/.test(meta.version_name) || !Number.isSafeInteger(meta.version_code) || meta.version_code<1 || meta.certificate_hash!==policy.certificateSha256) throw Error('Release metadata identity mismatch.');
+const version=meta.version_name; const publicBase=repo+'/releases/download/v'+version+'/';
 function validate(e:Event) {
-  const allowed:Record<number,string[]>={30509:['d','signature','expiry'],32267:['d','name','summary','icon','image','repository','f','h','t','license','website'],30063:['i','version','d','c','f','e','url'],3063:['i','x','version','url','m','size','f','min_platform_version','target_platform_version','filename','variant','commit','supported_nip','version_code','apk_certificate_hash']};
+  const allowed:Record<number,string[]>={30509:['d','signature','expiry'],32267:['d','name','summary','icon','image','repository','f','h','t','license','website','url'],30063:['i','version','d','c','f','e','url'],3063:['i','x','version','url','m','size','f','min_platform_version','target_platform_version','filename','variant','commit','supported_nip','version_code','apk_certificate_hash']};
   if(e.pubkey!==publisher || !allowed[e.kind] || e.tags.some(t=>!allowed[e.kind].includes(t[0])) || e.content.length>32768)throw Error('Unexpected release template.');
   if(e.kind===30509) { if(tag(e,'d')!==meta.certificate_hash || e.content!=='' || Number(tag(e,'expiry'))<=e.created_at)throw Error('Invalid certificate proof.'); }
   else if(tag(e,e.kind===32267?'d':'i')!==pkg)throw Error('Foreign package.');
   if(e.kind===32267 && (tag(e,'name')!=='Canopy'||tag(e,'repository')!==repo))throw Error('Wrong application.');
-  if(e.kind===30063 && (tag(e,'c')!=='main'||tag(e,'d')!==pkg+'@0.1.0'||tag(e,'version')!=='0.1.0'))throw Error('Wrong release.');
-  if(e.kind===3063 && (tag(e,'apk_certificate_hash')!==meta.certificate_hash||tag(e,'version_code')!=='1'||tag(e,'x')!==meta.hash||tag(e,'size')!==String(meta.size)))throw Error('Wrong APK.');
-  for(const t of e.tags.filter(t=>['url','icon','image'].includes(t[0])))if(!t[1].startsWith(repo+'/releases/download/v0.1.0/') && !/^https:\/\/cdn\.zapstore\.dev\/[a-f0-9]{64}(\?redirect=true)?$/.test(t[1]))throw Error('Unexpected asset URL.');
+  if(e.kind===30063 && (tag(e,'c')!=='main'||tag(e,'d')!==pkg+'@'+version||tag(e,'version')!==version))throw Error('Wrong release.');
+  if(e.kind===3063 && (tag(e,'apk_certificate_hash')!==meta.certificate_hash||tag(e,'version_code')!==String(meta.version_code)||tag(e,'x')!==meta.hash||tag(e,'size')!==String(meta.size)))throw Error('Wrong APK.');
+  for(const t of e.tags.filter(t=>['url','icon','image'].includes(t[0])))if(!(e.kind===32267&&t[0]==='url'&&t[1]===policy.website) && ![publicBase+'canopy-'+version+'.apk',publicBase+'icon.png'].includes(t[1]) && !/^https:\/\/cdn\.zapstore\.dev\/[a-f0-9]{64}(\?redirect=true)?$/.test(t[1]))throw Error('Unexpected asset URL.');
 }
 async function sign(e:Event) {
   validate(e);
@@ -45,8 +46,8 @@ if(action==='sign') {
   const events=(await Bun.file(run+'/unsigned.jsonl').text()).trim().split('\n').map(x=>JSON.parse(x)) as Event[];
   if(events.length!==3 || ![32267,3063,30063].every(k=>events.filter(e=>e.kind===k).length===1))throw Error('Expected exact zsp app, asset and release.');
   const asset=events.find(e=>e.kind===3063)!; const release=events.find(e=>e.kind===30063)!; const app=events.find(e=>e.kind===32267)!;
-  asset.tags=asset.tags.map(t=>t[0]==='url'?['url',repo+'/releases/download/v0.1.0/canopy-0.1.0.apk']:t);
-  app.tags=app.tags.map(t=>t[0]==='icon'?['icon',repo+'/releases/download/v0.1.0/icon.png']:t);
+  asset.tags=asset.tags.map(t=>t[0]==='url'?['url',publicBase+'canopy-'+version+'.apk']:t);
+  app.tags=app.tags.map(t=>t[0]==='icon'?['icon',publicBase+'icon.png']:t);
   const signedAsset=await sign(asset);
   release.tags=release.tags.map(t=>t[0]==='e'?['e',signedAsset.id,relay]:t);
   release.tags.push(['url',`https://cdn.zapstore.dev/${meta.hash}?redirect=true`]);

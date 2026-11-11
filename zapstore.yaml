@@ -1,5 +1,5 @@
 repository: https://github.com/humansinstitute/canopy
-release_source: https://github.com/humansinstitute/canopy/releases/download/v0.1.0/canopy-0.1.0.apk
+release_source: https://github.com/humansinstitute/canopy/releases/download/v0.1.1/canopy-0.1.1.apk
 icon: ./android/icon.png
 name: Canopy
 summary: A calm Nostr client with Amber intent signing

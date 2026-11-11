@@ -7,8 +7,8 @@ android {
         applicationId 'com.wingman.canopy'
         minSdk 30
         targetSdk 36
-        versionCode 1
-        versionName '0.1.0'
+        versionCode 2
+        versionName '0.1.1'
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
     }
     signingConfigs {
@@ -30,7 +30,7 @@ android {
 tasks.register('bundleWeb', Exec) {
     workingDir '../..'
     commandLine 'npx', 'vite', 'build', '--config', 'android/vite.config.ts'
-    inputs.files(fileTree('../../src'), fileTree('../../public'), file('../../index.html'), file('../bridge.ts'), file('../vite.config.ts'), file('../../package-lock.json'))
+    inputs.files(fileTree('../../src'), fileTree('../../public'), file('../../index.html'), file('../bridge.ts'), file('../vite.config.ts'), fileTree('../fonts'), file('../../package-lock.json'))
     outputs.dir layout.buildDirectory.dir('webAssets')
 }
 tasks.named('preBuild').configure { dependsOn 'bundleWeb' }
