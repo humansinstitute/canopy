@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="500" viewBox="0 0 1600 500" role="img" aria-labelledby="title desc">
+  <title id="title">Canopy</title>
+  <desc id="desc">The Canopy wordmark with three lime green rising leaves on a deep forest background.</desc>
+  <rect width="1600" height="500" rx="100" fill="#0b110e"/>
+  <g transform="translate(154 107) rotate(-12 135 145)" fill="#c8ff66">
+    <rect x="20" y="112" width="62" height="174" rx="31"/>
+    <rect x="104" y="16" width="62" height="270" rx="31"/>
+    <rect x="188" y="150" width="62" height="136" rx="31"/>
+  </g>
+  <text x="500" y="326" fill="#ecf1e9" font-family="Georgia" font-size="240" font-weight="bold">Canopy</text>
+</svg>

@@ -1,0 +1,41 @@
+plugins { id 'com.android.application' }
+android {
+    namespace 'com.wingman.canopy'
+    compileSdk 36
+    buildFeatures { buildConfig true }
+    defaultConfig {
+        applicationId 'com.wingman.canopy'
+        minSdk 30
+        targetSdk 36
+        versionCode 1
+        versionName '0.1.0'
+        testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
+    }
+    signingConfigs {
+        release {
+            if (System.getenv('CANOPY_KEYSTORE')) {
+                storeFile file(System.getenv('CANOPY_KEYSTORE'))
+                storePassword System.getenv('CANOPY_STORE_PASSWORD')
+                keyAlias System.getenv('CANOPY_KEY_ALIAS') ?: 'canopy'
+                keyPassword System.getenv('CANOPY_KEY_PASSWORD') ?: System.getenv('CANOPY_STORE_PASSWORD')
+            }
+        }
+    }
+    buildTypes {
+        release { if (System.getenv('CANOPY_KEYSTORE')) signingConfig signingConfigs.release }
+    }
+    compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+    sourceSets.main.assets.srcDir layout.buildDirectory.dir('webAssets')
+}
+tasks.register('bundleWeb', Exec) {
+    workingDir '../..'
+    commandLine 'npx', 'vite', 'build', '--config', 'android/vite.config.ts'
+    inputs.files(fileTree('../../src'), fileTree('../../public'), file('../../index.html'), file('../bridge.ts'), file('../vite.config.ts'), file('../../package-lock.json'))
+    outputs.dir layout.buildDirectory.dir('webAssets')
+}
+tasks.named('preBuild').configure { dependsOn 'bundleWeb' }
+dependencies {
+    implementation 'androidx.activity:activity:1.13.0'
+    implementation 'androidx.webkit:webkit:1.15.0'
+    testImplementation 'junit:junit:4.13.2'
+}

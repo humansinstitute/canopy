@@ -1,0 +1,17 @@
+repository: https://github.com/humansinstitute/canopy
+release_source: https://github.com/humansinstitute/canopy/releases/download/v0.1.0/canopy-0.1.0.apk
+icon: ./android/icon.png
+name: Canopy
+summary: A calm Nostr client with Amber intent signing
+description: |
+  Canopy brings a reactive Nostr feed, profiles, threads, mentions, quotes,
+  search, bookmarks, media and wallet settings to Android. The Android native
+  host bundles the React interface and asks Amber to sign using NIP-55 intents.
+  Identity keys stay in Amber. NStack backup requires the browser bridge and is
+  unavailable in the Android host.
+website: https://zinc-pod-arch.rick.runwingman.com
+tags: [nostr, social]
+supported_nips: ["01", "02", "10", "18", "19", "44", "47", "51", "55", "57", "65", "84", "98"]
+metadata_sources: []
+release_notes: ./android/CHANGELOG.md
+pubkey: npub1llwrq3rtah3rg3r2dyfyht55ek7aa0ey7z47ujju407pzfp38shqa7zcvr

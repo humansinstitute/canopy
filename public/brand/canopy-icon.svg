@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
+  <title id="title">Canopy icon</title>
+  <desc id="desc">Three lime green rising leaves on a deep forest rounded square.</desc>
+  <rect width="1024" height="1024" rx="224" fill="#0b110e"/>
+  <circle cx="774" cy="174" r="284" fill="#182a20" opacity=".72"/>
+  <g transform="translate(202 184) rotate(-12 310 330)" fill="#c8ff66">
+    <rect x="52" y="266" width="140" height="390" rx="70"/>
+    <rect x="240" y="52" width="140" height="604" rx="70"/>
+    <rect x="428" y="350" width="140" height="306" rx="70"/>
+  </g>
+</svg>

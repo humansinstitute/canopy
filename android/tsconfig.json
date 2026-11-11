@@ -1,0 +1,5 @@
+{
+  "extends": "../tsconfig.app.json",
+  "compilerOptions": { "noEmit": true, "composite": false },
+  "include": ["bridge.ts", "../src", "../src/vite-env.d.ts"]
+}
