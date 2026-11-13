@@ -19,8 +19,13 @@ import androidx.navigation.compose.*
 @Composable
 fun SettingsPage(model: CanopyModel) {
     val accountUi by model.account.collectAsStateWithLifecycle()
-    val busyUi by model.busy.collectAsStateWithLifecycle()
     val key = accountUi ?: return
+    key(key) { AccountSettingsPage(model, key) }
+}
+
+@Composable
+private fun AccountSettingsPage(model: CanopyModel, key: String) {
+    val busyUi by model.busy.collectAsStateWithLifecycle()
     val settings by model.settings.collectAsStateWithLifecycle()
     val status by model.transport.status.collectAsStateWithLifecycle()
     var read by rememberSaveable(settings) { mutableStateOf(settings.read.joinToString("\n")) }
@@ -41,7 +46,7 @@ fun SettingsPage(model: CanopyModel) {
         Heading("Settings", "Saved separately for your public account on this device")
         Field("Read relays", read, { read = it }, 3)
         Field("Write relays", write, { write = it }, 3)
-        Field("Blossom upload servers", blossom, { blossom = it }, 2)
+        Field("Blossom upload servers (local override)", blossom, { blossom = it }, 2)
         Row {
             TextButton(onClick = model::resetSettings) { Text("Reset to profile") }
             Button(
@@ -56,6 +61,7 @@ fun SettingsPage(model: CanopyModel) {
                 Text("Save settings")
             }
         }
+        BlossomListEditor(model, key)
         status.forEach { (url, online) ->
             Text(
                 "${if(online) "●" else "○"} $url · ${if(online) "connected" else "retrying/offline"}",

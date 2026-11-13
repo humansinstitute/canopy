@@ -81,10 +81,10 @@ export function SettingsPanel({ settings, profileDefaults, zapPreferences, onRes
 
   return (
     <div className="settings-panel">
-      <p className="settings-copy">Canopy uses your NIP-65 relay list and Blossom server list by default. Settings save here first; backup status shows whether your NStack has an encrypted copy.</p>
+      <p className="settings-copy">Local overrides: Canopy uses your NIP-65 relay list and Blossom server list by default. Settings save here first; backup status shows whether your NStack has an encrypted copy.</p>
       <label>Read relays<textarea aria-label="Read relays" rows={4} value={read} onChange={(event) => setRead(event.target.value)} /></label>
       <label>Write relays<textarea aria-label="Write relays" rows={4} value={write} onChange={(event) => setWrite(event.target.value)} /></label>
-      <label>Blossom upload servers<textarea aria-label="Blossom upload servers" rows={3} value={blossom} placeholder="https://blossom.example" onChange={(event) => setBlossom(event.target.value)} /></label>
+      <label>Blossom upload servers (local override)<textarea aria-label="Blossom upload servers" rows={3} value={blossom} placeholder="https://blossom.example" onChange={(event) => setBlossom(event.target.value)} /></label>
       <div className="settings-actions"><button className="secondary-button" type="button" onClick={reset}>Reset to profile</button><button className="primary-button compact" type="button" onClick={save}>Save settings</button></div>
       <section className="wallet-settings" aria-labelledby="zap-settings-title">
         <div><h3 id="zap-settings-title">One-tap zaps</h3><span className="nip-badge">NIP-57</span></div>

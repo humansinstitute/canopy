@@ -2,6 +2,7 @@
 import { createHash, X509Certificate, verify as verifyRSA } from 'node:crypto';
 import { resolve } from 'node:path';
 import { verifyEvent } from 'nostr-tools';
+import { assertLegacyPublisherAllowed } from './certificate-owner-guard';
 const root=process.env.AUTOPILOT_REPO;
 if (!root) throw Error('AUTOPILOT_REPO must name the installed broker checkout.');
 const {callCapabilityBroker, readCapabilityIdentity}=await import(resolve(root,'src/mcp/capability-client.ts'));
@@ -24,7 +25,9 @@ function validate(e:Event) {
   if(e.kind===3063 && (tag(e,'apk_certificate_hash')!==meta.certificate_hash||tag(e,'version_code')!==String(meta.version_code)||tag(e,'x')!==meta.hash||tag(e,'size')!==String(meta.size)))throw Error('Wrong APK.');
   for(const t of e.tags.filter(t=>['url','icon','image'].includes(t[0])))if(!(e.kind===32267&&t[0]==='url'&&t[1]===policy.website) && ![publicBase+'canopy-'+version+'.apk',publicBase+'icon.png'].includes(t[1]) && !/^https:\/\/cdn\.zapstore\.dev\/[a-f0-9]{64}(\?redirect=true)?$/.test(t[1]))throw Error('Unexpected asset URL.');
 }
+const ownerCheck=()=>assertLegacyPublisherAllowed(meta.certificate_hash,publisher,verifyEvent);
 async function sign(e:Event) {
+  await ownerCheck();
   validate(e);
   const {event}=await callCapabilityBroker('/api/mcp/capabilities/nostr-event',{event:{kind:e.kind,content:e.content,tags:e.tags}});
   if(!verifyEvent(event)||event.pubkey!==publisher||event.kind!==e.kind||event.content!==e.content||JSON.stringify(event.tags)!==JSON.stringify(e.tags))throw Error('Broker identity/template mismatch.');
@@ -61,9 +64,10 @@ if(action==='sign') {
   const events=[...await Bun.file(run+'/signed.json').json(),await Bun.file(run+'/proof-signed.json').json()];
   for(const e of events){validate(e);if(!verifyEvent(e))throw Error('Invalid signed event.');}
   if(action==='publish') {
+    await ownerCheck();
     const {writeFile}=await import('node:fs/promises');
     await writeFile(run+'/publish-intent.json',JSON.stringify({ids:events.map(e=>e.id),createdAt:Date.now()}),{flag:'wx',mode:0o600});
-    for(const e of events){const messages=await exchange(['EVENT',e],m=>m[0]==='OK'&&m[1]===e.id);await Bun.write(run+`/relay-${e.kind}.json`,JSON.stringify(messages));const response=messages.find(m=>m[0]==='OK');if(!response?.[2])throw Error('Relay rejected: '+response?.[3]);}
+    for(const e of events){await ownerCheck();const messages=await exchange(['EVENT',e],m=>m[0]==='OK'&&m[1]===e.id);await Bun.write(run+`/relay-${e.kind}.json`,JSON.stringify(messages));const response=messages.find(m=>m[0]==='OK');if(!response?.[2])throw Error('Relay rejected: '+response?.[3]);}
   }
   const messages=await exchange(['REQ','verify',{ids:events.map(e=>e.id)}],m=>m[0]==='EOSE'||m[0]==='CLOSED');
   await Bun.write(run+'/readback.json',JSON.stringify(messages,null,2));

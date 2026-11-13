@@ -212,7 +212,7 @@ data class NetworkSettings(
                     .distinct()
                     .ifEmpty { DEFAULT_RELAYS }
             val b =
-                latest(events, 10063, account)?.values("server")?.filter(::safeHttps)?.distinct()
+                latest(events, 10063, account)?.values("server")?.mapNotNull { runCatching { normalizeProfileServer(it) }.getOrNull() }?.distinct()
                     ?: emptyList()
             return NetworkSettings(read.take(12), write.take(12), b.take(8))
         }

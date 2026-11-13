@@ -1,3 +1,4 @@
+import { normalizeProfileServer } from "./blossom-servers";
 import { changeSetting, readSetting } from "./settings-state";
 import type { NostrEvent } from "../types";
 import { customRelayPlan, relayPlanFromProfile, type RelayPlan } from "./relays";
@@ -9,13 +10,13 @@ export interface NetworkSettings {
 }
 
 function latest(events: NostrEvent[], kind: number): NostrEvent | undefined {
-  return events.filter((event) => event.kind === kind).sort((a, b) => b.created_at - a.created_at)[0];
+  return events.filter((event) => event.kind === kind).sort((a, b) => b.created_at - a.created_at || a.id.localeCompare(b.id))[0];
 }
 
 export function normalizeBlossomServer(value: string): string | null {
   try {
     const url = new URL(value.trim());
-    if (url.protocol !== "https:") return null;
+    if (url.protocol !== "https:" || url.username || url.password) return null;
     url.pathname = "/";
     url.search = "";
     url.hash = "";
@@ -29,7 +30,7 @@ export function blossomServersFromProfile(event: NostrEvent | undefined): string
   if (!event || event.kind !== 10063) return [];
   return [...new Set(event.tags
     .filter(([name, value]) => name === "server" && Boolean(value))
-    .map(([, value]) => normalizeBlossomServer(value))
+    .map(([, value]) => { try { return normalizeProfileServer(value); } catch { return null; } })
     .filter((server): server is string => Boolean(server)))];
 }
 

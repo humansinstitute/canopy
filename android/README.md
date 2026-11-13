@@ -84,16 +84,17 @@ includes Kotlin, Compose resources, tests and these product docs. Never publish
 this checkout's private Git history. Review the exact export, then commit/push
 only its clean public main and attach the tested APK/checksum to a greater release.
 
-Use `scripts/zapstore-release.ts` and current `zapstore.yaml` only through the
-inherited authorized broker. No raw Nostr key, nsec or bunker fallback is allowed.
-For the certificate proof use the established offline `zsp identity --link-key`
-flow with the public publisher and privately supplied keystore password; proof
-and broker timestamps must match. Verify the RSA proof against the public APK
-certificate. Reconcile uncertain delivery before retries. Verify all signed app,
-asset, release and certificate events by relay readback, current catalog selection,
-and anonymous APK/CDN download hashes. Relay acceptance alone is insufficient.
+Canopy's Zapstore ownership is now Pete's Nostr identity, pinned in `zapstore.yaml`; the Android package and certificate are unchanged. Future publications use the enrolled native AP Vault release helper (`scripts/publish.ts` in that checkout) and its `docs/PUBLISHING.md`: prepare the verified public APK's application/asset/release triple, sign, independently verify, publish and read back the exact reviewed events. The active certificate ownership proof already exists; ordinary releases must not regenerate C1 proofs. Review renewal or ownership changes separately.
+
+`scripts/zapstore-release.ts` and `android/release-policy.json` retain the legacy Rick broker workflow for audit/readback. Its signing and publication intentionally hold after the transfer, including retained signed events; do not change that policy or bypass its guard to simulate owner authority. No raw Nostr key, nsec or bunker fallback is allowed. Reconcile uncertain delivery before retries and verify current catalog attribution and anonymous APK download hashes separately from relay acceptance.
 
 Protocol documentation: [NIP-55](https://github.com/nostr-protocol/nips/blob/master/55.md),
 [Amber](https://github.com/greenart7c3/Amber),
 [Quartz](https://github.com/vitorpamplona/quartz),
 [ACINQ](https://github.com/ACINQ/secp256k1-kmp).
+
+The legacy Zapstore broker adapter checks the complete official-relay certificate-claim snapshot before each signature and each publication, including retained signed events. A foreign publisher claim, ambiguous history or incomplete query holds publishing. This conservative Nostr-signature check is not app-key verification or a global ownership proof. After an ownership transfer, publish through the authorized owner's AP Vault workflow; never regenerate or replay old-owner certificate claims.
+
+## Published Blossom profile list
+
+Settings provides a separate public BUD-03 editor: load the newest list, edit/reorder HTTPS servers, review and explicitly confirm publication through Amber kind `10063`. Local upload overrides remain separate and retain existing reset/storage behavior. Login and reset do not publish. Publication preserves unknown tags and retained server-tag extensions, uses empty content, and requires at least one server (up to eight). Paths are preserved; credentials, queries, fragments and duplicates are refused. Complete queries from both configured read and write relays are required before and after signing; stale or future-dated baselines block replacement. Signer cancellation and missing relay ACK retain edits in the open editor. Account switching clears the editor, including any publication confirmation.

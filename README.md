@@ -97,3 +97,11 @@ The video browser tests run against `server.mjs` (including production CSP), dec
 ```sh
 ffmpeg -f lavfi -i testsrc2=size=160x90:rate=10 -f lavfi -i sine=frequency=440:sample_rate=44100 -t 12 -c:v libx264 -pix_fmt yuv420p -preset veryslow -crf 35 -c:a aac -b:a 32k -movflags +faststart e2e/fixtures/playback.mp4
 ```
+
+### Published Blossom list
+
+Settings separates local upload overrides (saved and backed up as before) from the public BUD-03 profile list. Load the published list, edit server URLs, move servers up/down, then choose **Publish profile list** and **Confirm publish**. The first server is preferred. Login, local save and reset never publish a profile list. Publishing updates profile defaults only when no local override exists.
+
+Canopy publishes kind `10063`, ordered `server` tags and empty content through the account-bound NIP-07 signer (Amber NIP-55 on Android). Allow kind `10063` for the exact Canopy origin in browser signer policy when needed; no private key is requested. Existing non-server tags and extensions on retained server tags are preserved. HTTPS server URLs retain paths; credentials, query strings, fragments, duplicates and empty publication are rejected. Current [BUD-03](https://github.com/hzrd149/blossom/blob/master/buds/03.md) requires at least one server tag; Canopy supports up to eight.
+
+Every configured read and write relay must complete its query before editing can become a replacement. Newest timestamp wins, with lowest event ID breaking ties. A newer list discovered before or during signing requires reload/review; future-dated lists cannot be replaced until their timestamp. Uncertain reads never become an empty replacement. A relay ACK confirms acceptance by that relay, not global propagation. Failed or cancelled publication retains the open editor's changes; closing the editor discards its profile-list draft. Local overrides and their backup are independent.

@@ -1,5 +1,5 @@
 repository: https://github.com/humansinstitute/canopy
-release_source: https://github.com/humansinstitute/canopy/releases/download/v0.2.0/canopy-0.2.0.apk
+release_source: https://github.com/humansinstitute/canopy/releases/download/v0.2.1/canopy-0.2.1.apk
 icon: ./android/icon.png
 name: Canopy
 summary: Native Kotlin Nostr client with Amber signing
@@ -14,4 +14,4 @@ tags: [nostr, social]
 supported_nips: ["01", "02", "10", "18", "19", "44", "47", "51", "55", "57", "65", "84"]
 metadata_sources: []
 release_notes: ./android/CHANGELOG.md
-pubkey: npub1llwrq3rtah3rg3r2dyfyht55ek7aa0ey7z47ujju407pzfp38shqa7zcvr
+pubkey: npub1jss47s4fvv6usl7tn6yp5zamv2u60923ncgfea0e6thkza5p7c3q0afmzy

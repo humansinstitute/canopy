@@ -39,7 +39,7 @@ describe("profile network settings", () => {
       event(10063, 20, [["server", "https://blossom.example/path"], ["server", "http://unsafe.example"]]),
     ], buildRelayPlan());
     expect(settings.relays.read).toEqual(["wss://new.example"]);
-    expect(settings.blossomServers).toEqual(["https://blossom.example"]);
+    expect(settings.blossomServers).toEqual(["https://blossom.example/path"]);
     expect(blossomServersFromProfile(event(10063, 1, [["server", "bad"]]))).toEqual([]);
   });
 

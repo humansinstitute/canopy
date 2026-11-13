@@ -525,6 +525,55 @@ class CanopyModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    suspend fun loadBlossomList(key: String): Event? {
+        val generation = accountGeneration
+        require(account.value == key) { "Account changed; list loading cancelled." }
+        val targets = (settings.value.read + settings.value.write).distinct()
+        require(targets.isNotEmpty()) { "No relays configured." }
+        val results = coroutineScope {
+            targets.map { relay -> async {
+                transport.fetchResult(listOf(filter(listOf(10063), listOf(key), limit = 100)), targets = setOf(relay))
+            } }.awaitAll()
+        }
+        require(account.value == key && generation == accountGeneration) { "Account changed; list loading cancelled." }
+        require(results.all { it.reliable && it.events.size < 100 }) {
+            "Configured relays did not completely load the Blossom list. Retry before publishing; existing data is untouched."
+        }
+        results.flatMap { it.events }.forEach(::ingest)
+        flush()
+        return latest(events.value, 10063, key)
+    }
+
+    fun publishBlossomList(key: String, base: Event?, servers: List<String>, active: () -> Boolean, onDone: (Event) -> Unit) = action {
+        changes.withLock {
+            val generation = accountGeneration
+            val writes = settings.value.write.toList()
+            fun authorized() = active() && account.value == key && generation == accountGeneration
+            require(authorized()) { "Account or editor changed; publication cancelled." }
+            require(writes.isNotEmpty()) { "No write relays configured." }
+            val template = blossomListTemplate(base, key, servers)
+            require(loadBlossomList(key)?.id == base?.id) {
+                "A newer Blossom list was found. Reload and review before publishing; your edits are retained."
+            }
+            require(authorized()) { "Account or editor changed; publication cancelled." }
+            val signed = signer.sign(template)
+            require(loadBlossomList(key)?.id == base?.id) {
+                "A newer Blossom list arrived during signer approval. Reload and review before publishing."
+            }
+            require(authorized()) { "Account or editor changed; publication cancelled." }
+            val (accepted, total) = transport.publish(signed, writes, ::authorized)
+            ingest(signed)
+            flush()
+            if (authorized()) {
+                if (storage.get(key, "network").isBlank()) {
+                    settings.value = settings.value.copy(blossom = validateProfileServers(servers))
+                }
+                message.value = "Published Blossom list: $accepted of $total relays confirmed. Other relays may still be pending. Local overrides are unchanged."
+                onDone(signed)
+            }
+        }
+    }
+
     fun saveSettings(value: NetworkSettings) {
         account.value?.let {
             storage.put(it, "network", value.json())

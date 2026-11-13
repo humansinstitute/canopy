@@ -17,7 +17,7 @@ export default defineConfig({
   projects: [
     { name: "video-chromium", testMatch: "video.spec.ts", use: { ...devices["Desktop Chrome"] } },
     { name: "video-webkit", testMatch: "video.spec.ts", use: { ...devices["Desktop Safari"] } },
-    { name: "mobile-chromium", testMatch: ["client.spec.ts", "settings-sync.spec.ts", "guest.spec.ts", "signer-startup.spec.ts", "relay-publish.spec.ts"], use: { ...devices["iPhone 13"] } },
+    { name: "mobile-chromium", testMatch: ["client.spec.ts", "settings-sync.spec.ts", "guest.spec.ts", "signer-startup.spec.ts", "relay-publish.spec.ts", "blossom-list.spec.ts"], use: { ...devices["iPhone 13"] } },
     { name: "desktop-webkit", testMatch: "desktop-refresh.spec.ts", use: { ...devices["Desktop Safari"] } },
   ],
 });
