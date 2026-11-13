@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.3
+
+Match the Android launcher and store icon to the three lime bamboo strokes inside Canopy. Adaptive icons use a full deep forest background, launcher-controlled masking, and a matching themed monochrome mark. Preserve the app identity, account data and settings.
+
 ## 0.2.2
 
 Load and edit the published Blossom list when some relays are offline. Show incomplete coverage beside the editor, preserve the newest verified cached list, and require informed confirmation before publishing with uncertainty. All-offline reads remain retryable failures. Copy local servers into a new profile draft without changing the local override.

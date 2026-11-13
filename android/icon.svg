@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 72 72" role="img" aria-label="Canopy bamboo icon">
+  <circle cx="36" cy="36" r="36" fill="#0b110e"/>
+  <!-- Same geometry and visible scale as the adaptive icon under a round mask. -->
+  <path d="M15.6 58.8 L22.8 30 M32.4 58.8 L39.6 13.2 M49.2 58.8 L56.4 38.16" fill="none" stroke="#c8ff66" stroke-width="9.6" stroke-linecap="round"/>
+</svg>

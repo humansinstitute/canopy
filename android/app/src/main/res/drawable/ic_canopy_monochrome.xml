@@ -1,0 +1,8 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <!-- Exact CanopyMark geometry, uniformly scaled into the adaptive safe zone. -->
+    <path android:fillColor="@android:color/transparent" android:strokeColor="#ffffff"
+        android:strokeWidth="9.6" android:strokeLineCap="round"
+        android:pathData="M33.6,76.8 L40.8,48 M50.4,76.8 L57.6,31.2 M67.2,76.8 L74.4,56.16" />
+</vector>
