@@ -11,6 +11,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 @Composable
 fun BlossomListEditor(model: CanopyModel, account: String) {
     val busy by model.busy.collectAsStateWithLifecycle()
+    val settings by model.settings.collectAsStateWithLifecycle()
+    var snapshot by remember(account) { mutableStateOf<BlossomSnapshot?>(null) }
     var base by remember(account) { mutableStateOf<Event?>(null) }
     var loaded by remember(account) { mutableStateOf(false) }
     var servers by rememberSaveable(account) { mutableStateOf(arrayListOf<String>()) }
@@ -22,13 +24,15 @@ fun BlossomListEditor(model: CanopyModel, account: String) {
     fun load() {
         model.action {
             loaded = false
-            val found = model.loadBlossomList(account)
+            val result = model.loadBlossomList(account)
+            val found = result.event
             if (active.value) {
+                snapshot = result
                 base = found
                 servers = ArrayList(found?.tags?.filter { it.firstOrNull() == "server" }?.map { it.getOrNull(1) ?: "" } ?: emptyList())
                 loaded = true
                 error = null
-                model.message.value = if (found == null) "No published Blossom list found. Add at least one server." else "Published Blossom list loaded; first server is preferred."
+                model.message.value = if (found == null) "No list found on responding relays. Add at least one server to create a draft." else "Published Blossom list loaded; first server is preferred."
             }
         }
     }
@@ -39,7 +43,9 @@ fun BlossomListEditor(model: CanopyModel, account: String) {
     OutlinedButton(onClick = { if (loaded) reload = true else load() }, enabled = !busy) {
         Text(if (loaded) "Reload published list" else "Load published list")
     }
+    snapshot?.warning?.takeIf { it.isNotBlank() }?.let { Text(it, color = MaterialTheme.colorScheme.tertiary) }
     if (loaded) {
+        if (base == null && settings.blossom.isNotEmpty()) OutlinedButton(onClick = { edit(model.settings.value.blossom) }, enabled = !busy) { Text("Copy local servers to draft") }
         servers.forEachIndexed { index, server ->
             Field("Profile server ${index + 1}", server, { value -> edit(servers.mapIndexed { i, old -> if (i == index) value else old }) })
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -68,10 +74,10 @@ fun BlossomListEditor(model: CanopyModel, account: String) {
     if (confirm) AlertDialog(
         onDismissRequest = { confirm = false },
         title = { Text("Publish Blossom list?") },
-        text = { Text("Replace your public list with these ${servers.size} servers, in order:\n\n${servers.joinToString("\n")}\n\nLocal overrides are unchanged. Amber will ask for approval.") },
+        text = { Text("Replace your public list with these ${servers.size} servers, in order:\n\n${servers.joinToString("\n")}\n\nLocal overrides are unchanged. Amber will ask for approval." + if (snapshot?.uncertain == true) "\n\nCoverage is incomplete or the cached list is unconfirmed. Publishing may replace a list on unavailable relays. Confirm only if you accept this uncertainty." else "") },
         confirmButton = { TextButton(onClick = {
             confirm = false
-            model.publishBlossomList(account, base, servers.toList(), { active.value }) { published -> base = published }
+            model.publishBlossomList(account, base, servers.toList(), { active.value }, snapshot?.uncertain == true) { published -> base = published; snapshot = snapshot?.copy(event = published, cachedUnwitnessed = false) }
         }) { Text("Confirm publish") } },
         dismissButton = { TextButton(onClick = { confirm = false }) { Text("Cancel") } },
     )

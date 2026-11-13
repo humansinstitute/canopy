@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.2
+
+Load and edit the published Blossom list when some relays are offline. Show incomplete coverage beside the editor, preserve the newest verified cached list, and require informed confirmation before publishing with uncertainty. All-offline reads remain retryable failures. Copy local servers into a new profile draft without changing the local override.
+
 ## 0.2.1
 
 Read, edit, reorder and explicitly publish the public BUD-03 Blossom server list from Settings through Amber. Local upload overrides stay separate. Publication preserves unknown tags, checks newest account-bound relay state before and after approval, validates unique secure URLs and reports relay acknowledgement failures without losing edits.

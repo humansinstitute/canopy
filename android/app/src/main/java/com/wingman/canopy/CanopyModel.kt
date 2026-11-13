@@ -525,7 +525,7 @@ class CanopyModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    suspend fun loadBlossomList(key: String): Event? {
+    suspend fun loadBlossomList(key: String): BlossomSnapshot {
         val generation = accountGeneration
         require(account.value == key) { "Account changed; list loading cancelled." }
         val targets = (settings.value.read + settings.value.write).distinct()
@@ -536,15 +536,21 @@ class CanopyModel(app: Application) : AndroidViewModel(app) {
             } }.awaitAll()
         }
         require(account.value == key && generation == accountGeneration) { "Account changed; list loading cancelled." }
-        require(results.all { it.reliable && it.events.size < 100 }) {
-            "Configured relays did not completely load the Blossom list. Retry before publishing; existing data is untouched."
-        }
+        val usable = results.filter { it.reliable && it.events.size < 100 }
+        val completed = usable.flatMap { it.completed }.toSet()
+        val witnessed = usable.flatMap { it.events }
         results.flatMap { it.events }.forEach(::ingest)
         flush()
-        return latest(events.value, 10063, key)
+        require(completed.isNotEmpty()) {
+            "No relay completed loading your Blossom list. Check your connection and retry; existing data is untouched."
+        }
+        val newest = latest(events.value, 10063, key)
+        return BlossomSnapshot(newest, completed, targets.toSet() - completed,
+            newest != null && witnessed.none { it.id == newest.id })
+
     }
 
-    fun publishBlossomList(key: String, base: Event?, servers: List<String>, active: () -> Boolean, onDone: (Event) -> Unit) = action {
+    fun publishBlossomList(key: String, base: Event?, servers: List<String>, active: () -> Boolean, allowUncertain: Boolean = false, onDone: (Event) -> Unit) = action {
         changes.withLock {
             val generation = accountGeneration
             val writes = settings.value.write.toList()
@@ -552,15 +558,19 @@ class CanopyModel(app: Application) : AndroidViewModel(app) {
             require(authorized()) { "Account or editor changed; publication cancelled." }
             require(writes.isNotEmpty()) { "No write relays configured." }
             val template = blossomListTemplate(base, key, servers)
-            require(loadBlossomList(key)?.id == base?.id) {
+            val before = loadBlossomList(key)
+            require(before.event?.id == base?.id) {
                 "A newer Blossom list was found. Reload and review before publishing; your edits are retained."
             }
+            require(!before.uncertain || allowUncertain) { "Relay coverage is now incomplete. Reload and review the warning before publishing." }
             require(authorized()) { "Account or editor changed; publication cancelled." }
             val signed = signer.sign(template)
-            require(loadBlossomList(key)?.id == base?.id) {
+            val after = loadBlossomList(key)
+            require(after.event?.id == base?.id) {
                 "A newer Blossom list arrived during signer approval. Reload and review before publishing."
             }
             require(authorized()) { "Account or editor changed; publication cancelled." }
+            require(!after.uncertain || allowUncertain) { "Relay coverage is now incomplete. Reload and review the warning before publishing." }
             val (accepted, total) = transport.publish(signed, writes, ::authorized)
             ingest(signed)
             flush()

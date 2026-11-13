@@ -49,3 +49,17 @@ fun blossomListTemplate(current: Event?, account: String, servers: List<String>)
             (current?.tags ?: emptyList()).filter { it.firstOrNull() != "server" },
     )
 }
+
+data class BlossomSnapshot(
+    val event: Event?,
+    val completed: Set<String>,
+    val failed: Set<String>,
+    val cachedUnwitnessed: Boolean,
+) {
+    val uncertain get() = failed.isNotEmpty() || cachedUnwitnessed
+    val warning get() = listOfNotNull(
+        if (failed.isNotEmpty()) "Only ${completed.size} of ${completed.size + failed.size} relays responded completely. Other relays may have a newer list." else null,
+        if (cachedUnwitnessed) "Keeping your newest verified cached list; responding relays did not return it." else null,
+        if (event == null) "No list found on responding relays. This does not prove no list exists elsewhere." else null,
+    ).joinToString(" ")
+}

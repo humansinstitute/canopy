@@ -27,6 +27,9 @@ class BlossomListExperienceTest {
     private val key = Secp256k1.pubkeyCreate(secret).copyOfRange(1, 33).hex()
     private fun signed(e: Event) = e.copy(sig = Secp256k1.signSchnorr(e.id.bytes(), secret, ByteArray(32)).hex())
     @Volatile private var remote = signed(Event.template(key, 10063, "", listOf(listOf("server", "https://one.example/path", "retain"), listOf("server", "https://two.example"), listOf("custom", "keep")), now() - 30))
+    @Volatile private var timeoutEvent: Event? = null
+    @Volatile private var absent = false
+    @Volatile private var changeDuringSign = false
     @Volatile private var accept = true
     @Volatile private var cancel = false
     private val received = CopyOnWriteArrayList<Event>()
@@ -45,7 +48,15 @@ class BlossomListExperienceTest {
                     override fun onMessage(ws: WebSocket, text: String) {
                         val a = JSONArray(text)
                         if (a.optString(0) == "REQ") {
-                            ws.send(JSONArray().put("EVENT").put(a.getString(1)).put(remote.json()).toString())
+                            if (request.path == "/closed") {
+                                ws.send(JSONArray().put("CLOSED").put(a.getString(1)).put("blocked").toString()); return
+                            }
+                            if (request.path == "/reject") { ws.close(1000, "offline"); return }
+                            if (request.path == "/timeout") {
+                                timeoutEvent?.let { ws.send(JSONArray().put("EVENT").put(a.getString(1)).put(it.json()).toString()) }
+                                return
+                            }
+                            if (!absent) ws.send(JSONArray().put("EVENT").put(a.getString(1)).put(remote.json()).toString())
                             ws.send(JSONArray().put("EOSE").put(a.getString(1)).toString())
                         } else if (a.optString(0) == "EVENT") {
                             val event = Event.parse(a.getJSONObject(1)); received.add(event)
@@ -64,6 +75,13 @@ class BlossomListExperienceTest {
     }
     @get:Rule val rules: RuleChain = RuleChain.outerRule(fixture).around(ui)
 
+    private fun capture(name: String) {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        java.io.File(context.getExternalFilesDir(null), name).outputStream().use {
+            InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot().compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)
+        }
+    }
+
     @Test fun editConfirmCancelRejectStaleAndAccountIsolation() {
         val model = ui.activity.model
         ui.waitUntil(10000) { model.initialized.value }
@@ -72,14 +90,15 @@ class BlossomListExperienceTest {
             model.foreground(false)
             model.account.value = key
             model.events.value = emptyList()
-            model.settings.value = NetworkSettings(listOf(url), listOf(url), listOf("https://local.example"))
+            model.settings.value = NetworkSettings(listOf(url, "$url/timeout", "$url/closed", "$url/reject"), listOf(url), listOf("https://local.example"))
             model.storage.put(key, "network", model.settings.value.json())
-            model.transport.start(listOf(url))
+            model.transport.start(model.settings.value.read)
             model.signer.launch = { intent ->
                 signs++
                 if (cancel) model.signer.result(ActivityResult(Activity.RESULT_CANCELED, null))
                 else {
                     val request = Event.parse(org.json.JSONObject(intent.data!!.schemeSpecificPart))
+                    if (changeDuringSign) remote = signed(Event.template(key, 10063, "", listOf(listOf("server", "https://during.example")), remote.createdAt + 1))
                     model.signer.result(ActivityResult(Activity.RESULT_OK, Intent().putExtra("id", intent.getStringExtra("id")).putExtra("event", signed(request).json().toString())))
                 }
             }
@@ -89,6 +108,8 @@ class BlossomListExperienceTest {
         click("Load published list")
         ui.waitUntil(10000) { !model.busy.value }
         ui.onNodeWithText("https://one.example/path").performScrollTo().assertIsDisplayed()
+        ui.onNodeWithText("Only 1 of 4", substring = true).performScrollTo().assertIsDisplayed()
+        capture("blossom-partial-existing.png")
         click("Up 2")
         click("Publish profile list")
         ui.onNodeWithText("Publish Blossom list?").assertIsDisplayed()
@@ -117,15 +138,100 @@ class BlossomListExperienceTest {
         ui.waitUntil(15000) { !model.busy.value }
         assertTrue(model.message.value!!.contains("No relay confirmed"))
         val before = signs
-        remote = signed(Event.template(key, 10063, "", listOf(listOf("server", "https://new.example")), now()))
+        remote = signed(Event.template(key, 10063, "", listOf(listOf("server", "https://new.example")), remote.createdAt + 1))
         click("Publish profile list")
         ui.onNodeWithText("Confirm publish").performClick()
         ui.waitUntil(15000) { !model.busy.value }
         assertTrue(model.message.value!!.contains("newer Blossom list"))
         assertEquals(before, signs)
+        click("Reload published list")
+        ui.onNodeWithText("Reload", substring = false).performClick()
+        ui.waitUntil(10000) { !model.busy.value }
+        ui.waitUntil(5000) { now() >= remote.createdAt }
+        changeDuringSign = true
+        click("Publish profile list")
+        ui.onNodeWithText("Confirm publish").performClick()
+        ui.waitUntil(15000) { !model.busy.value }
+        assertTrue(model.message.value!!.contains("during signer approval"))
+        assertEquals(before + 1, signs)
+        changeDuringSign = false
+        // A valid newer event before missing EOSE still contributes to newest known state.
+        timeoutEvent = signed(Event.template(key, 10063, "", listOf(listOf("server", "https://timeout-newer.example")), remote.createdAt + 1))
+        click("Reload published list")
+        ui.onNodeWithText("Reload", substring = false).performClick()
+        ui.waitUntil(10000) { !model.busy.value }
+        ui.onNodeWithText("https://timeout-newer.example").performScrollTo().assertIsDisplayed()
+        ui.onNodeWithText("Keeping your newest verified cached list", substring = true).performScrollTo().assertIsDisplayed()
+        timeoutEvent = null
+        // A partial absence keeps the newest verified cache and warns persistently.
+        absent = true
+        click("Reload published list")
+        ui.onNodeWithText("Reload", substring = false).performClick()
+        ui.waitUntil(10000) { !model.busy.value }
+        ui.onNodeWithText("Keeping your newest verified cached list", substring = true).performScrollTo().assertIsDisplayed()
+        ui.onNodeWithText("https://timeout-newer.example").performScrollTo().assertIsDisplayed()
         ui.runOnIdle { model.account.value = "b".repeat(64) }
         ui.onNodeWithText("Load published list").performScrollTo().assertIsDisplayed()
         ui.onNodeWithText("Publish profile list").assertDoesNotExist()
+        ui.runOnIdle { model.transport.pause(); model.storage.put(key, "network", ""); model.account.value = null }
+    }
+
+    @Test fun partialAbsenceCreatesDraftOnlyAfterExplicitConfirmationAndAllOfflineNeverSigns() {
+        absent = true
+        val model = ui.activity.model
+        ui.waitUntil(10000) { model.initialized.value }
+        var signs = 0
+        ui.runOnIdle {
+            model.foreground(false)
+            model.account.value = key
+            model.events.value = emptyList()
+            model.settings.value = NetworkSettings(listOf(url, "$url/timeout", "$url/closed", "$url/reject"), listOf(url), listOf("https://local.example"))
+            model.storage.put(key, "network", model.settings.value.json())
+            model.transport.start(model.settings.value.read)
+            model.signer.launch = { intent ->
+                signs++
+                if (cancel) model.signer.result(ActivityResult(Activity.RESULT_CANCELED, null))
+                else {
+                    val request = Event.parse(org.json.JSONObject(intent.data!!.schemeSpecificPart))
+                    if (changeDuringSign) remote = signed(Event.template(key, 10063, "", listOf(listOf("server", "https://during.example")), remote.createdAt + 1))
+                    model.signer.result(ActivityResult(Activity.RESULT_OK, Intent().putExtra("id", intent.getStringExtra("id")).putExtra("event", signed(request).json().toString())))
+                }
+            }
+            ui.activity.setContent { CanopyTheme { SettingsPage(model) } }
+        }
+
+        absent = true
+        fun click(text: String) = ui.onNodeWithText(text, substring = false).performScrollTo().performClick()
+        click("Load published list")
+        ui.waitUntil(10000) { !model.busy.value }
+        ui.onNodeWithText("No list found on responding relays", substring = true).performScrollTo().assertIsDisplayed()
+        capture("blossom-partial-absence.png")
+        click("Copy local servers to draft")
+        assertEquals(0, signs)
+        assertTrue(received.isEmpty())
+        click("Publish profile list")
+        ui.onNodeWithText("Coverage is incomplete", substring = true).assertIsDisplayed()
+        ui.onNodeWithText("Cancel", substring = false).performClick()
+        assertEquals(0, signs)
+        click("Publish profile list")
+        ui.onNodeWithText("Confirm publish").performClick()
+        ui.waitUntil(15000) { !model.busy.value }
+        assertEquals(1, signs)
+        ui.onNodeWithText("No list found on responding relays", substring = true).assertDoesNotExist()
+        assertEquals(10063, received.single().kind)
+        assertEquals(listOf(listOf("server", "https://local.example")), received.single().tags)
+        assertEquals(listOf("https://local.example"), model.settings.value.blossom)
+        // Remove the only usable relay. Reload must fail and remove publish controls.
+        ui.runOnIdle {
+            model.settings.value = model.settings.value.copy(read = listOf("$url/timeout", "$url/closed", "$url/reject"), write = listOf("$url/timeout"))
+            model.transport.start(model.settings.value.read)
+        }
+        click("Reload published list")
+        ui.onNodeWithText("Reload", substring = false).performClick()
+        ui.waitUntil(10000) { !model.busy.value }
+        assertTrue(model.message.value!!.contains("No relay completed"))
+        ui.onNodeWithText("Publish profile list").assertDoesNotExist()
+        assertEquals(1, signs)
         ui.runOnIdle { model.transport.pause(); model.storage.put(key, "network", ""); model.account.value = null }
     }
 }

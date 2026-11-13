@@ -23,35 +23,57 @@ export function blossomListTemplate(base: NostrEvent | undefined, servers: strin
     }), ...(base?.tags ?? []).filter(([name]) => name !== "server").map((tag) => [...tag])] };
 }
 
-/** EOSE from every configured read relay is required. A timeout/CLOSED is not absence. */
-export async function readBlossomList(pubkey: string, relays: string[], timeout = 6000): Promise<NostrEvent | undefined> {
+export interface BlossomSnapshot {
+  event?: NostrEvent;
+  completed: string[];
+  failed: string[];
+  cachedUnwitnessed: boolean;
+}
+export const uncertainBlossomSnapshot = (s: BlossomSnapshot) => s.failed.length > 0 || s.cachedUnwitnessed;
+export function blossomSnapshotWarning(s: BlossomSnapshot): string {
+  return [
+    s.failed.length ? `Only ${s.completed.length} of ${s.completed.length + s.failed.length} relays responded completely. Other relays may have a newer list.` : "",
+    s.cachedUnwitnessed ? "Keeping your newest verified cached list; responding relays did not return it." : "",
+    !s.event ? "No list found on responding relays. This does not prove no list exists elsewhere." : "",
+  ].filter(Boolean).join(" ");
+}
+
+/** Bounded parallel reads: only complete, untruncated responses establish coverage. */
+export async function readBlossomList(pubkey: string, relays: string[], timeout = 6000): Promise<BlossomSnapshot> {
   const targets = [...new Set(relays)];
   if (!targets.length) throw new Error("No read relays configured.");
-  const batches = await Promise.all(targets.map((url) => new Promise<NostrEvent[]>((resolve, reject) => {
+  const batches = await Promise.all(targets.map((url) => new Promise<{ events: NostrEvent[]; complete: boolean }>((resolve) => {
     const found: NostrEvent[] = [];
     const subscription = new Subscription();
-    const timer = setTimeout(() => { subscription.unsubscribe(); reject(new Error("Read relays did not finish loading your Blossom list. Retry before publishing.")); }, timeout);
-    const fail = () => { clearTimeout(timer); subscription.unsubscribe(); reject(new Error("Your Blossom list could not be reliably read. Retry before publishing.")); };
-    subscription.add(relayPool.relay(url).subscription({ kinds: [BLOSSOM_LIST_KIND], authors: [pubkey], limit: 100 }, { reconnect: 0 }).subscribe({
-      next: (message) => {
-        if (message === "EOSE") {
-          clearTimeout(timer); subscription.unsubscribe();
-          if (found.length >= 100) reject(new Error("Blossom list response was truncated. Refusing to replace it."));
-          else resolve(found);
-        } else if (message.pubkey === pubkey && message.kind === BLOSSOM_LIST_KIND && verifyEvent(structuredClone(message))) found.push(message);
-      }, error: fail, complete: () => { if (!subscription.closed) fail(); },
-    }));
+    let settled = false;
+    const finish = (events?: NostrEvent[]) => {
+      if (settled) return;
+      settled = true; clearTimeout(timer); subscription.unsubscribe(); resolve({ events: events ?? found, complete: events !== undefined });
+    };
+    const timer = setTimeout(() => finish(), timeout);
+    try {
+      subscription.add(relayPool.relay(url).subscription({ kinds: [BLOSSOM_LIST_KIND], authors: [pubkey], limit: 100 }, { reconnect: 0 }).subscribe({
+        next: (message) => {
+          if (message === "EOSE") finish(found.length < 100 ? found : undefined);
+          else if (message.pubkey === pubkey && message.kind === BLOSSOM_LIST_KIND && verifyEvent(structuredClone(message))) found.push(message);
+        }, error: () => finish(), complete: () => finish(),
+      }));
+    } catch { finish(); }
   })));
+  const completed = targets.filter((_, i) => batches[i]!.complete);
+  const failed = targets.filter((_, i) => !batches[i]!.complete);
+  const events = batches.flatMap((batch) => batch.events);
   const cached = eventStore.getReplaceable(BLOSSOM_LIST_KIND, pubkey) as NostrEvent | undefined;
-  const events = batches.flat();
-  if (cached && verifyEvent(structuredClone(cached))) events.push(cached);
-  const newest = newestBlossomList(events, pubkey);
+  const verifiedCached = cached && verifyEvent(structuredClone(cached)) ? cached : undefined;
+  const newest = newestBlossomList([...events, ...(verifiedCached ? [verifiedCached] : [])], pubkey);
+  const cachedUnwitnessed = !!newest && !batches.some((batch) => batch.complete && batch.events.some((event) => event.id === newest.id));
   if (newest) eventStore.add(newest);
-  return newest;
+  if (!completed.length) throw new Error("No relay completed loading your Blossom list. Check your connection and retry; existing data is untouched.");
+  return { event: newest, completed, failed, cachedUnwitnessed };
 }
 
 export async function publishBlossomList(options: {
-  pubkey: string; base?: NostrEvent; servers: string[]; read(): Promise<NostrEvent | undefined>;
+  pubkey: string; base?: NostrEvent; servers: string[]; read(): Promise<BlossomSnapshot>; allowUncertain?: boolean;
   signer: NostrProvider; pool: Pick<RelayPool, "publish">; writeRelays: string[]; active(): boolean;
 }) {
   const { base, signer, pubkey, active } = options;
@@ -60,7 +82,8 @@ export async function publishBlossomList(options: {
   };
   const assertBase = async () => {
     const current = await options.read();
-    if (current?.id !== base?.id) throw new Error("A newer Blossom list was found. Reload and review it before publishing; your edits are still here.");
+    if (current.event?.id !== base?.id) throw new Error("A newer Blossom list was found. Reload and review it before publishing; your edits are still here.");
+    if (uncertainBlossomSnapshot(current) && !options.allowUncertain) throw new Error("Relay coverage is now incomplete. Reload and review the warning before publishing; your edits are still here.");
   };
   if (!options.writeRelays.length) throw new Error("No write relays configured.");
   const template = blossomListTemplate(base, options.servers);

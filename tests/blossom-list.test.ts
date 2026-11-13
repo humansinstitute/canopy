@@ -2,13 +2,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { finalizeEvent, generateSecretKey, getPublicKey } from "nostr-tools/pure";
 import { Observable } from "rxjs";
 import { blossomListTemplate, newestBlossomList, normalizeProfileServer, publishBlossomList, readBlossomList, validateProfileServers } from "../src/lib/blossom-list";
-import { relayPool } from "../src/lib/nostr";
+import { eventStore, relayPool } from "../src/lib/nostr";
 
 const secret = generateSecretKey();
 const pubkey = getPublicKey(secret);
 const base = finalizeEvent({ kind: 10063, created_at: 10, content: "", tags: [["server", "https://one.example/path/", "extension"], ["custom", "keep"], ["server", "https://two.example"]] }, secret);
 const signed = (template: Parameters<typeof finalizeEvent>[0]) => finalizeEvent(template, secret);
-const options = () => ({ pubkey, base, servers: ["https://two.example", "https://one.example/path"], read: vi.fn(async () => base), signer: { getPublicKey: vi.fn(async () => pubkey), signEvent: vi.fn(async (template) => signed(template)) }, pool: { publish: vi.fn(async () => [{ from: "wss://a.example", ok: true }]) } as never, writeRelays: ["wss://a.example", "wss://b.example"], active: () => true });
+const options = () => ({ pubkey, base, servers: ["https://two.example", "https://one.example/path"], read: vi.fn(async () => ({ event: base, completed: ["wss://a.example"], failed: [] as string[], cachedUnwitnessed: false })), signer: { getPublicKey: vi.fn(async () => pubkey), signEvent: vi.fn(async (template) => signed(template)) }, pool: { publish: vi.fn(async () => [{ from: "wss://a.example", ok: true }]) } as never, writeRelays: ["wss://a.example", "wss://b.example"], active: () => true });
 afterEach(() => vi.restoreAllMocks());
 
 describe("BUD-03 publication", () => {
@@ -50,18 +50,56 @@ describe("BUD-03 publication", () => {
   });
   it("refuses a newer baseline before signing and during approval", async () => {
     const newer = finalizeEvent({ ...base, created_at: 11 }, secret);
-    const stale = options(); stale.read.mockResolvedValue(newer);
+    const stale = options(); stale.read.mockResolvedValue({ event: newer, completed: [], failed: [] as string[], cachedUnwitnessed: false });
     await expect(publishBlossomList(stale)).rejects.toThrow("newer Blossom list");
     expect(stale.signer.signEvent).not.toHaveBeenCalled();
-    const racing = options(); racing.read.mockResolvedValueOnce(base).mockResolvedValueOnce(newer);
+    const racing = options(); racing.read.mockResolvedValueOnce({ event: base, completed: [], failed: [] as string[], cachedUnwitnessed: false }).mockResolvedValueOnce({ event: newer, completed: [], failed: [] as string[], cachedUnwitnessed: false });
     await expect(publishBlossomList(racing)).rejects.toThrow("newer Blossom list");
   });
-  it("requires EOSE from every relay and validates ingress", async () => {
+  it("uses completed relays with explicit partial coverage and validates ingress", async () => {
     const isolatedKey = getPublicKey(generateSecretKey());
     vi.spyOn(relayPool, "relay").mockImplementation((url) => ({ subscription: () => new Observable((s) => { queueMicrotask(() => { if (url.includes("complete")) { s.next("EOSE"); s.complete(); } }); }) }) as never);
-    await expect(readBlossomList(isolatedKey, ["wss://complete.example", "wss://silent.example"], 10)).rejects.toThrow("did not finish");
-    await expect(readBlossomList(isolatedKey, ["wss://complete.example"], 10)).resolves.toBeUndefined();
+    await expect(readBlossomList(isolatedKey, ["wss://complete.example", "wss://silent.example"], 10)).resolves.toMatchObject({ event: undefined, completed: ["wss://complete.example"], failed: ["wss://silent.example"] });
+    await expect(readBlossomList(isolatedKey, ["wss://complete.example"], 10)).resolves.toMatchObject({ event: undefined, failed: [] });
     vi.mocked(relayPool.relay).mockImplementation(() => ({ subscription: () => new Observable((s) => { queueMicrotask(() => { s.next({ ...base, sig: "0".repeat(128) }); s.next(base); s.next("EOSE"); }); }) }) as never);
-    await expect(readBlossomList(pubkey, ["wss://complete.example"], 100)).resolves.toMatchObject({ id: base.id, sig: base.sig });
+    await expect(readBlossomList(pubkey, ["wss://complete.example"], 100)).resolves.toMatchObject({ event: { id: base.id, sig: base.sig } });
   });
+  it("holds all-offline reads and retains unwitnessed verified newest cache", async () => {
+    const key = getPublicKey(generateSecretKey());
+    vi.spyOn(relayPool, "relay").mockImplementation(() => ({ subscription: () => new Observable((s) => { queueMicrotask(() => s.error(new Error("offline"))); }) }) as never);
+    await expect(readBlossomList(key, ["wss://offline.example"], 10)).rejects.toThrow("No relay completed");
+    eventStore.add(base);
+    vi.mocked(relayPool.relay).mockImplementation((url) => ({ subscription: () => new Observable((s) => { queueMicrotask(() => {
+      if (url.includes("healthy")) { s.next({ ...base, sig: "0".repeat(128), created_at: 999 }); s.next("EOSE"); }
+      else if (url.includes("closed")) s.complete();
+      else if (url.includes("reject")) s.error(new Error("rejected"));
+    }); }) }) as never);
+    const snapshot = await readBlossomList(pubkey, ["wss://healthy.example", "wss://timeout.example", "wss://closed.example", "wss://reject.example"], 10);
+    expect(snapshot).toMatchObject({ event: { id: base.id }, completed: ["wss://healthy.example"], failed: ["wss://timeout.example", "wss://closed.example", "wss://reject.example"], cachedUnwitnessed: true });
+  });
+  it("requires informed uncertainty consent, and coverage changes alone do not conflict", async () => {
+    const opts = options();
+    opts.read.mockResolvedValue({ event: base, completed: ["wss://a.example"], failed: ["wss://b.example"], cachedUnwitnessed: false });
+    await expect(publishBlossomList(opts)).rejects.toThrow("coverage");
+    expect(opts.signer.signEvent).not.toHaveBeenCalled();
+    const consented = { ...opts, allowUncertain: true };
+    await expect(publishBlossomList(consented)).resolves.toMatchObject({ event: { kind: 10063 } });
+  });
+
+  it("retains a newer verified event received before missing EOSE", async () => {
+    const sk = generateSecretKey(), key = getPublicKey(sk);
+    const older = finalizeEvent({ kind: 10063, content: "", tags: [["server", "https://older.example"]], created_at: 10 }, sk);
+    const newer = finalizeEvent({ ...older, created_at: 11, tags: [["server", "https://newer.example"]] }, sk);
+    vi.spyOn(relayPool, "relay").mockImplementation((url) => ({ subscription: () => new Observable((s) => { queueMicrotask(() => {
+      s.next(url.includes("healthy") ? older : newer);
+      if (url.includes("healthy")) s.next("EOSE");
+    }); }) }) as never);
+    const snapshot = await readBlossomList(key, ["wss://healthy.example", "wss://timeout.example"], 10);
+    expect(snapshot.event?.id).toBe(newer.id);
+    expect(snapshot.cachedUnwitnessed).toBe(true);
+    const signer = { getPublicKey: vi.fn(async () => key), signEvent: vi.fn(async (t) => finalizeEvent(t, sk)) };
+    await expect(publishBlossomList({ ...options(), pubkey: key, base: older, signer, read: async () => snapshot, allowUncertain: true })).rejects.toThrow("newer Blossom list");
+    expect(signer.signEvent).not.toHaveBeenCalled();
+  });
+
 });
